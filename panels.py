@@ -29,6 +29,8 @@ class PLYWOOD_PT_main_panel(bpy.types.Panel):
         layout.prop(props, "saw_kerf")
 
         layout.separator()
+        layout.label(text="Packing Settings:")
+        layout.prop(props, "packing_algorithm")
         layout.prop(props, "color_mode")
 
         layout.separator()

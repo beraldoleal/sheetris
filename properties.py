@@ -72,6 +72,16 @@ class PlywoodProperties(bpy.types.PropertyGroup):
         ],
         default='LANDSCAPE'
     )
+    packing_algorithm: bpy.props.EnumProperty(
+        name="Packing Algorithm",
+        description="Choose the bin packing algorithm to use",
+        items=[
+            ('GUILLOTINE', "Guillotine", "Fast but may waste space - makes only straight cuts"),
+            ('MAXRECTS', "MaxRects", "Better space efficiency - tries multiple positions"),
+            ('SKYLINE', "Skyline", "Good balance of speed and efficiency - uses bottom-left placement"),
+        ],
+        default='MAXRECTS'
+    )
 
 
 # Registration

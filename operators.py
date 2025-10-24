@@ -12,7 +12,7 @@ from datetime import datetime
 from mathutils import Vector
 from collections import defaultdict
 
-from .packer import GuillotinePacker
+from .packer import GuillotinePacker, MaxRectsPacker, SkylinePacker
 
 
 class PLYWOOD_OT_create_layout(bpy.types.Operator):
@@ -260,8 +260,14 @@ class PLYWOOD_OT_create_layout(bpy.types.Operator):
             # Sort pieces by area (largest first) for better packing
             pieces_to_pack.sort(key=lambda p: p['width'] * p['height'], reverse=True)
 
-            # Pack pieces using Guillotine algorithm
-            packer = GuillotinePacker(sheet_width, sheet_length, saw_kerf)
+            # Select packing algorithm based on user choice (default to MAXRECTS if not set)
+            algorithm = getattr(props, 'packing_algorithm', 'MAXRECTS')
+            if algorithm == 'GUILLOTINE':
+                packer = GuillotinePacker(sheet_width, sheet_length, saw_kerf)
+            elif algorithm == 'MAXRECTS':
+                packer = MaxRectsPacker(sheet_width, sheet_length, saw_kerf)
+            else:  # SKYLINE
+                packer = SkylinePacker(sheet_width, sheet_length, saw_kerf)
 
             for piece in pieces_to_pack:
                 new_obj = piece['new_obj']
@@ -521,55 +527,17 @@ class PLYWOOD_OT_print_report(bpy.types.Operator):
             if collection_name in bpy.data.collections:
                 collection = bpy.data.collections[collection_name]
 
-                # Collect all pieces (non-text, non-sheet objects)
-                pieces = []
+                # Collect sheet objects sorted by position
+                sheet_objects = []
                 for obj in collection.all_objects:
-                    if obj.type == 'MESH' and not obj.name.startswith('Label_') and not obj.name.startswith('Sheet_'):
-                        # Get object position and dimensions in world space
-                        loc = obj.location
-                        bbox = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+                    if obj.type == 'MESH' and obj.name.startswith('Sheet_'):
+                        sheet_objects.append(obj)
 
-                        min_x = min(v.x for v in bbox)
-                        max_x = max(v.x for v in bbox)
-                        min_y = min(v.y for v in bbox)
-                        max_y = max(v.y for v in bbox)
+                # Sort sheets by Y position
+                sheet_objects.sort(key=lambda s: s.location.y)
 
-                        width = (max_x - min_x) * 1000  # Convert to mm
-                        height = (max_y - min_y) * 1000
-                        x = min_x * 1000
-                        y = min_y * 1000
-
-                        # Find the label for this piece
-                        label = "?"
-                        label_obj_name = f"Label_{obj.name}"
-                        if label_obj_name in bpy.data.objects:
-                            label_obj = bpy.data.objects[label_obj_name]
-                            if hasattr(label_obj.data, 'body'):
-                                label = label_obj.data.body
-
-                        pieces.append({
-                            'x': x,
-                            'y': y,
-                            'width': width,
-                            'height': height,
-                            'label': label
-                        })
-
-                # Draw PDF sheets
-                if pieces:
-                    # Calculate bounds
-                    min_x = min(p['x'] for p in pieces)
-                    min_y = min(p['y'] for p in pieces)
-                    max_y = max(p['y'] + p['height'] for p in pieces)
-
-                    # Adjust to start from 0
-                    offset_x = min_x
-                    offset_y = min_y
-
-                    # Calculate number of sheets needed
-                    total_height = max_y - min_y
-                    num_sheets = int(total_height / sheet_length_mm) + 1
-
+                # Draw PDF sheets - one page per sheet object
+                if sheet_objects:
                     # Define colors for pieces
                     piece_colors = [
                         colors.Color(1, 0.6, 0.6),  # Light red
@@ -589,11 +557,15 @@ class PLYWOOD_OT_print_report(bpy.types.Operator):
                     scale_y = available_height / (sheet_length_mm * mm)
                     scale = min(scale_x, scale_y)
 
-                    for sheet_idx in range(num_sheets):
+                    for sheet_idx, sheet_obj in enumerate(sheet_objects):
                         c.showPage()  # New page for each sheet
 
-                        sheet_min_y = sheet_idx * sheet_length_mm
-                        sheet_max_y = (sheet_idx + 1) * sheet_length_mm
+                        # Get sheet position in mm
+                        sheet_center_y_mm = sheet_obj.location.y * 1000
+                        sheet_min_y_mm = sheet_center_y_mm - (sheet_length_mm / 2)
+                        sheet_max_y_mm = sheet_center_y_mm + (sheet_length_mm / 2)
+                        sheet_center_x_mm = sheet_obj.location.x * 1000
+                        sheet_min_x_mm = sheet_center_x_mm - (sheet_width_mm / 2)
 
                         # Draw title
                         c.setFont("Helvetica-Bold", 16)
@@ -625,41 +597,61 @@ class PLYWOOD_OT_print_report(bpy.types.Operator):
                             grid_y = draw_y + (y * mm * scale)
                             c.line(draw_x, grid_y, draw_x + draw_width, grid_y)
 
-                        # Draw pieces
-                        for piece in pieces:
-                            piece_y_start = piece['y'] - offset_y
-                            piece_y_end = piece_y_start + piece['height']
+                        # Draw pieces on this sheet
+                        for obj in collection.all_objects:
+                            if obj.type == 'MESH' and not obj.name.startswith('Label_') and not obj.name.startswith('Sheet_'):
+                                # Get piece center position
+                                piece_center_y_mm = obj.location.y * 1000
+                                piece_center_x_mm = obj.location.x * 1000
 
-                            # Check if piece is on this sheet
-                            if piece_y_start < sheet_max_y and piece_y_end > sheet_min_y:
-                                px = piece['x'] - offset_x
-                                py = piece_y_start - sheet_min_y
+                                # Check if piece center is on this sheet
+                                if piece_center_y_mm >= sheet_min_y_mm and piece_center_y_mm < sheet_max_y_mm:
+                                    # Get bounding box
+                                    bbox = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+                                    min_x = min(v.x for v in bbox) * 1000
+                                    max_x = max(v.x for v in bbox) * 1000
+                                    min_y = min(v.y for v in bbox) * 1000
+                                    max_y = max(v.y for v in bbox) * 1000
+                                    width = max_x - min_x
+                                    height = max_y - min_y
 
-                                # Convert to PDF coordinates
-                                rect_x = draw_x + (px * mm * scale)
-                                rect_y = draw_y + (py * mm * scale)
-                                rect_w = piece['width'] * mm * scale
-                                rect_h = piece['height'] * mm * scale
+                                    # Find label
+                                    label = "?"
+                                    label_obj_name = f"Label_{obj.name}"
+                                    if label_obj_name in bpy.data.objects:
+                                        label_obj = bpy.data.objects[label_obj_name]
+                                        if hasattr(label_obj.data, 'body'):
+                                            label = label_obj.data.body
 
-                                # Choose color based on label
-                                color_idx = ord(piece['label'][0]) % len(piece_colors) if piece['label'] else 0
-                                c.setFillColor(piece_colors[color_idx])
-                                c.setStrokeColor(colors.black)
-                                c.setLineWidth(1)
-                                c.rect(rect_x, rect_y, rect_w, rect_h, stroke=1, fill=1)
+                                    # Calculate position relative to sheet
+                                    px = min_x - sheet_min_x_mm
+                                    py = min_y - sheet_min_y_mm
 
-                                # Draw label
-                                c.setFillColor(colors.black)
-                                font_size = min(piece['width'], piece['height']) * 0.25 * scale
-                                c.setFont("Helvetica-Bold", max(font_size, 8))
-                                label_x = rect_x + rect_w / 2
-                                label_y = rect_y + rect_h / 2
-                                c.drawCentredString(label_x, label_y + 5, piece['label'])
+                                    # Convert to PDF coordinates
+                                    rect_x = draw_x + (px * mm * scale)
+                                    rect_y = draw_y + (py * mm * scale)
+                                    rect_w = width * mm * scale
+                                    rect_h = height * mm * scale
 
-                                # Draw dimensions
-                                dim_text = f"{piece['width']:.0f}×{piece['height']:.0f}"
-                                c.setFont("Helvetica", max(font_size * 0.6, 6))
-                                c.drawCentredString(label_x, label_y - font_size, dim_text)
+                                    # Choose color based on label
+                                    color_idx = ord(label[0]) % len(piece_colors) if label else 0
+                                    c.setFillColor(piece_colors[color_idx])
+                                    c.setStrokeColor(colors.black)
+                                    c.setLineWidth(1)
+                                    c.rect(rect_x, rect_y, rect_w, rect_h, stroke=1, fill=1)
+
+                                    # Draw label
+                                    c.setFillColor(colors.black)
+                                    font_size = min(width, height) * 0.25 * scale
+                                    c.setFont("Helvetica-Bold", max(font_size, 8))
+                                    label_x = rect_x + rect_w / 2
+                                    label_y = rect_y + rect_h / 2
+                                    c.drawCentredString(label_x, label_y + 5, label)
+
+                                    # Draw dimensions
+                                    dim_text = f"{width:.0f}×{height:.0f}"
+                                    c.setFont("Helvetica", max(font_size * 0.6, 6))
+                                    c.drawCentredString(label_x, label_y - font_size, dim_text)
 
         # Save PDF
         c.save()

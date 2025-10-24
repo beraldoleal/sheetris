@@ -10,7 +10,10 @@ Sheetris is a Blender addon that automatically generates optimized cutting layou
 
 ## Features
 
-- ✨ **Smart Packing Algorithm** - Guillotine bin packing minimizes waste
+- ✨ **Multiple Packing Algorithms** - Choose the best algorithm for your needs:
+  - **MaxRects**: Best material efficiency, tries multiple positions
+  - **Guillotine**: Fast but may waste space, makes only straight cuts
+  - **Skyline**: Good balance of speed and efficiency, bottom-left placement
 - 📏 **Automatic Piece Detection** - Analyzes object dimensions and groups by thickness
 - 🎨 **Color Coding** - Visual distinction by thickness or dimension
 - 🔤 **Letter Labels** - Each unique dimension gets a letter (A, B, C, etc.)
@@ -22,7 +25,7 @@ Sheetris is a Blender addon that automatically generates optimized cutting layou
   - 100mm reference grid
   - Configurable page sizes (A4, A3, Letter, Tabloid)
 - 🔄 **Non-Destructive** - Original objects remain untouched
-- ⚙️ **Configurable** - Set sheet size, saw kerf, and orientation
+- ⚙️ **Configurable** - Set sheet size, saw kerf, packing algorithm, and orientation
 
 ## Installation
 
@@ -59,6 +62,10 @@ Find the **Sheetris** panel in the 3D View sidebar (press `N` if hidden):
 
 - **Sheet Width/Length**: Your plywood sheet dimensions in mm
 - **Saw Kerf**: Blade width for spacing between pieces (typically 3mm)
+- **Packing Algorithm**: Choose the algorithm that best fits your needs
+  - *MaxRects*: Best material efficiency
+  - *Guillotine*: Fastest processing
+  - *Skyline*: Balanced approach
 - **Color By**:
   - *Thickness*: Same color for all pieces of one thickness
   - *Dimension*: Same color for identical pieces
